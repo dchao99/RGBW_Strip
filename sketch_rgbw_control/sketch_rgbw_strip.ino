@@ -6,10 +6,11 @@
  * or the first client refreshes, the sliders do not reset back to the default.
  * Modified from WebSocketServer_LEDcontrol.ino
  * 
- * To upload .ino.bin file through terminal use: curl -F "image=@firmware.bin" esp8266-xxxxxx.local/update
+ * To upload .ino.bin file through terminal use: 
+ *   curl -F "image=@firmware.bin" esp8266-xxxxxx.local/update
  *
  * Web Socket Library:
- * https://github.com/Links2004/arduinoWebSockets
+ *   https://github.com/Links2004/arduinoWebSockets
  *
  */
 
@@ -28,14 +29,14 @@
 #endif
 
 // Compiler directives, comment out to disable
-#define USE_SERIAL Serial             // Valid options: Serial and Serial1
+//#define USE_SERIAL Serial         // Valid options: Serial and Serial1
 
 // LED strip settings
-#define ENCODING_BYTES 3              // Options: 3 (RGB) or 4 (RGBW)
-#define NUM_PIXELS     86             // Kitchen = 55 LEDs, Hallway = 86 LEDs
+#define ENCODING_BYTES 3            // Options: 3 (RGB) or 4 (RGBW)
+#define NUM_PIXELS     126          // Kitchen = 55 LEDs, Hallway = 86 LEDs, Entryway = 126 LEDs
 #define D_PIN          D2
 #define BRIGHTNESS     80
-#define SLIDER_MIN     32
+#define SLIDER_MIN     40           // Note: patch this literal by hand inside the web page 
 
 // To read a max 4.2V from V(bat), a voltage divider is used to drop down to Vref=1.06V for the ADC
 const float volt_div_const = 4.50*1.06/1.023; // multiplier = Vin_max*Vref/1.023 (mV)
@@ -47,10 +48,11 @@ const char* password = "nintendo";      // your Wi-Fi network password
 
 // Web page variables
 uint32_t  rgbwData=0;             // RGBW LED format = [ W | R | G | B ]
+bool      ledEffect = false;      // Run special LED Effect
 String    homeString = "";        // RAM buffer for home page, we need to copy the home page 
                                   // from PROGMEM to here so we can make it a dynamic page
 
-const unsigned int patch_page_interval = 5 * 1000;  // Patch web page interval = 5 sec
+const unsigned int patch_interval = 1 * 1000;  // Patch web page interval = 1 sec
 unsigned long      lastPatchTime;
 
 
@@ -86,6 +88,7 @@ const uint8_t PROGMEM gamma256LUT[] = {
   215,218,220,223,225,228,231,233,236,239,241,244,247,249,252,255 };
 
 const char PROGMEM index_1[] = R"rawliteral(<html><head><script>
+var effectEnable = false;
 var connection = new WebSocket('ws://'+location.hostname+':81/', ['arduino']);
 connection.onopen = function() { connection.send('Connect ' + new Date()); };
 connection.onerror = function(error) { console.log('WebSocket Error ', error); };
@@ -100,34 +103,59 @@ function sendRGBW() {
 const char PROGMEM index_2[] = R"rawliteral( if(r.length<2) { r='0'+r; }  if(g.length<2) { g='0'+g; }
  if(b.length<2) { b='0'+b; }
  var rgb = '#'+r+g+b; console.log('RGB: '+rgb); connection.send(rgb); }
-</script></head>
-<body>LED Control:<br/><br/>
-R : <input id="r" type="range" min="32" max="255" step="1" value=")rawliteral";
+function ledEffect () {
+ effectEnable = ! effectEnable;
+ if (effectEnable) {
+  connection.send("Effect ON");
+  document.getElementById('effect').style.backgroundColor = '#00878F';
+  document.getElementById('r').className = 'disabled';
+  document.getElementById('g').className = 'disabled';
+  document.getElementById('b').className = 'disabled';
+  document.getElementById('r').disabled = true;
+  document.getElementById('g').disabled = true;
+  document.getElementById('b').disabled = true;
+  console.log('LED Effect ON');
+ } else {
+  connection.send("Normal Mode");
+  document.getElementById('effect').style.backgroundColor = '#999';
+  document.getElementById('r').className = 'enabled';
+  document.getElementById('g').className = 'enabled';
+  document.getElementById('b').className = 'enabled';
+  document.getElementById('r').disabled = false;
+  document.getElementById('g').disabled = false;
+  document.getElementById('b').disabled = false;
+  console.log('LED Effect OFF');
+ }
+})rawliteral";
 #endif
 #if ENCODING_BYTES == 4  // Part of page for RGBW (four bytes) Encoding
 const char PROGMEM index_2[] = R"rawliteral( var w = parseInt(document.getElementById('w').value).toString(16);
  if(r.length<2) { r='0'+r; }  if(g.length<2) { g='0'+g; }
  if(b.length<2) { b='0'+b; }  if(w.length<2) { w='0'+w; }
- var rgbw = '#'+w+r+g+b; console.log('RGBW: '+rgbw); connection.send(rgbw); }
-</script></head>
-<body>LED Control:<br/><br/>
-R : <input id="r" type="range" min="32" max="255" step="1" value=")rawliteral";
+ var rgbw = '#'+w+r+g+b; console.log('RGBW: '+rgbw); connection.send(rgbw); })rawliteral";
 #endif
 
-const char PROGMEM index_3[] = R"rawliteral(" oninput="sendRGBW();" /><br/>
-G : <input id="g" type="range" min="32" max="255" step="1" value=")rawliteral";
+const char PROGMEM index_3[] = R"rawliteral(</script></head>
+<body><center><h2>LED Control:</h2>
+<table><tr><td>R: </td><td><input id="r" type="range" min="40" max="255" step="1" value=")rawliteral";
 
-const char PROGMEM index_4[] = R"rawliteral(" oninput="sendRGBW();" /><br/>
-B : <input id="b" type="range" min="32" max="255" step="1" value=")rawliteral";
+const char PROGMEM index_4[] = R"rawliteral(" oninput="sendRGBW();" /></td></tr>
+<td>G: </td><td><input id="g" type="range" min="40" max="255" step="1" value=")rawliteral";
 
-const char PROGMEM index_5[] = R"rawliteral(" oninput="sendRGBW();" /><br/>
-W: <input id="w" type="range" min="32" max="255" step="1" value=")rawliteral";
+const char PROGMEM index_5[] = R"rawliteral(" oninput="sendRGBW();" /></td></tr>
+<td>B: </td><td><input id="b" type="range" min="40" max="255" step="1" value=")rawliteral";
 
-const char PROGMEM index_6[] = R"rawliteral(" oninput="sendRGBW();" /><br/><br/>
-<font size="-1">
+const char PROGMEM index_6[] = R"rawliteral(" oninput="sendRGBW();" /></td></tr>
+<td>W: </td><td><input id="w" type="range" min="40" max="255" step="1" value=")rawliteral";
+
+const char PROGMEM index_7[] = R"rawliteral(" oninput="sendRGBW();" /></td></tr></table><br/>
+<button id="effect" class="button" style="background-color:#999" onclick="ledEffect();">Effect</button><br/><br/>
+<font size="1">
 Battery: )rawliteral";
-const char PROGMEM index_7[] = R"rawliteral(<br/>
-</body></html>)rawliteral";
+const char PROGMEM index_8[] = R"rawliteral(<br/>
+Hostname: )rawliteral";
+const char PROGMEM index_9[] = R"rawliteral(<br/>
+</center></body></html>)rawliteral";
 
 
 // Convert from perceived brightness value to the luminance value
@@ -157,27 +185,34 @@ void constructHomePage()
   char ch[6];
   homeString  = FPSTR(index_1);
   homeString += FPSTR(index_2);
+  homeString += FPSTR(index_3);
   sprintf(ch, "%03d", (rgbwData>>16)&0xff);
   homeString += ch;
-  homeString += FPSTR(index_3);
+  homeString += FPSTR(index_4);
   sprintf(ch, "%03d",(rgbwData>>8)&0xff );
   homeString += ch;
-  homeString += FPSTR(index_4);
+  homeString += FPSTR(index_5);
   sprintf(ch, "%03d",(rgbwData)&0xff );
   homeString += ch;
   #if ENCODING_BYTES == 4
-  homeString += FPSTR(index_5);
+  homeString += FPSTR(index_6);
   sprintf(ch, "%03d",(rgbwData>>24)&0xff );
   homeString += ch;
   #endif
-  homeString += FPSTR(index_6); 
+  homeString += FPSTR(index_7); 
   int ftoi = readBatteryVoltage() / 10;
-  sprintf( ch, "%d.%02dv",  ftoi/100, ftoi%100);
+  // If voltage is less than 1V, we must be powered by an USB port
+  if ( ftoi < 100 )
+    sprintf( ch, "USB  ");  // 5 characters long, same length as the voltage display
+  else
+    sprintf( ch, "%d.%02dv",  ftoi/100, ftoi%100);
   #ifdef USE_SERIAL
   USE_SERIAL.printf("Construct Home Page... battery = %s \n", ch);
   #endif
   homeString += ch;
-  homeString += FPSTR(index_7); 
+  homeString += FPSTR(index_8); 
+  homeString += WiFi.hostname();
+  homeString += FPSTR(index_9); 
 }
 
 
@@ -185,27 +220,31 @@ void constructHomePage()
 void patchHomePage()
 {
   char ch[6];
-  int i = strlen_P(index_1) + strlen_P(index_2);
+  int i = strlen_P(index_1) + strlen_P(index_2) + + strlen_P(index_3);
   sprintf(ch, "%03d", (rgbwData>>16)&0xff);
   for (int j=0; j<3; j++)
     homeString.setCharAt(i+j, ch[j]);
-  i = i + 3 + strlen_P(index_3);
+  i = i + 3 + strlen_P(index_4);
   sprintf(ch, "%03d",(rgbwData>>8)&0xff );
   for (int j=0; j<3; j++)
     homeString.setCharAt(i+j, ch[j]);
-  i = i + 3 + strlen_P(index_4);
+  i = i + 3 + strlen_P(index_5);
   sprintf(ch, "%03d",(rgbwData)&0xff );
   for (int j=0; j<3; j++)
     homeString.setCharAt(i+j, ch[j]);
   #if ENCODING_BYTES == 4
-  i = i + 3 + strlen_P(index_5);
+  i = i + 3 + strlen_P(index_6);
   sprintf(ch, "%03d",(rgbwData>>24)&0xff );
   for (int j=0; j<3; j++)
     homeString.setCharAt(i+j, ch[j]);
   #endif
-  i = i + 3 + strlen_P(index_6);
+  i = i + 3 + strlen_P(index_7);
   int ftoi = readBatteryVoltage() / 10;
-  sprintf( ch, "%d.%02dv",  ftoi/100, ftoi%100);
+  // If voltage is less than 1V, we must be powered by an USB port
+  if ( ftoi < 100 )
+    sprintf( ch, "USB  ");  // 5 characters long, same length as the voltage display
+  else
+    sprintf( ch, "%d.%02dv",  ftoi/100, ftoi%100);
   #ifdef USE_SERIAL
   USE_SERIAL.printf("Patch Home Page... battery = %s \n", ch);
   #endif
@@ -246,6 +285,10 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length
           strip.setPixelColor(i, rgbwLUT);
         }
         strip.show();
+      } else if (payload[0] == 'E') {   // the browser sends an E when the LED effect is enabled
+        ledEffect = true;
+      } else if (payload[0] == 'N') {   // the browser sends an N when the LED effect is disabled
+        ledEffect = false;
       }
       #ifdef USE_SERIAL
       USE_SERIAL.println();
@@ -306,7 +349,7 @@ void setup()
     USE_SERIAL.begin(115200);
     USE_SERIAL.println();
     USE_SERIAL.println();
-    //USE_SERIAL.setDebugOutput(true);
+    //USE_SERIAL.setDebugOutput(true);  // Use extra debugging details
     #endif
     
     // First thing is to disable the WiFi auto-connect 
@@ -354,11 +397,11 @@ void loop()
 {
     webSocket.loop();
     server.handleClient();
-    if ( millis()-lastPatchTime >= patch_page_interval ) {
+    if ( millis()-lastPatchTime >= patch_interval ) {
       patchHomePage();
       lastPatchTime = millis();
     }
-    // Add some delay for better power consumption but still gives good response 
+    // Add some delay to reduce power consumption but still give a good slider response 
     delay(20);  // (ms)
 }
 
