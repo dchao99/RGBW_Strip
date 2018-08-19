@@ -32,28 +32,31 @@
 //#define USE_SERIAL Serial         // Valid options: Serial and Serial1
 
 // LED strip settings
-#define ENCODING_BYTES 3            // Options: 3 (RGB) or 4 (RGBW)
-#define NUM_PIXELS     126          // Kitchen = 55 LEDs, Hallway = 86 LEDs, Entryway = 126 LEDs
+#define ENCODING_BYTES 4            // Options: 3 (RGB) or 4 (RGBW)
+                                    // WWA-Floor-Strip = 3, RGB-Counter-Strip = 4
+#define NUM_PIXELS     55           // Kitchen = 55 LEDs, Hallway = 86 LEDs, Entryway = 126 LEDs
 #define D_PIN          D2
-#define BRIGHTNESS     80
-#define SLIDER_MIN     40           // Note: patch this literal by hand inside the web page 
+#define BRIGHTNESS     128          // WWA-Floor-Strip = 80, RGB-Counter-Strip = 128
+#define SLIDER_MIN     40           // Note: Patch this literal by hand inside the web page 
+                                    //       because macro can't be used inside literal declaration
 
 // To read a max 4.2V from V(bat), a voltage divider is used to drop down to Vref=1.06V for the ADC
 const float volt_div_const = 4.50*1.06/1.023; // multiplier = Vin_max*Vref/1.023 (mV)
                                               // WeMos BatShield: (350KΩ+100KΩ) 
 
-// Wi-Fi Settings
-const char* ssid     = "San Leandro";   // your wireless network name (SSID)
-const char* password = "nintendo";      // your Wi-Fi network password
-
 // Web page variables
-uint32_t  rgbwData=0;             // RGBW LED format = [ W | R | G | B ]
-bool      ledEffect = false;      // Run special LED Effect
+uint32_t  rgbwData=0x80000000;    // RGBW LED format = [ W | R | G | B ]
+                                  // WWA-Floor-Strip = 0x00700070, RGB-Counter-Strip = 0x80000000
+bool      effectEnable = false;   // Run special LED Effect
 String    homeString = "";        // RAM buffer for home page, we need to copy the home page 
                                   // from PROGMEM to here so we can make it a dynamic page
 
 const unsigned int patch_interval = 1 * 1000;  // Patch web page interval = 1 sec
 unsigned long      lastPatchTime;
+
+// Wi-Fi Settings
+const char* ssid     = "San Leandro";   // your wireless network name (SSID)
+const char* password = "nintendo";      // your Wi-Fi network password
 
 
 // Initialize class objects
@@ -132,7 +135,35 @@ function ledEffect () {
 const char PROGMEM index_2[] = R"rawliteral( var w = parseInt(document.getElementById('w').value).toString(16);
  if(r.length<2) { r='0'+r; }  if(g.length<2) { g='0'+g; }
  if(b.length<2) { b='0'+b; }  if(w.length<2) { w='0'+w; }
- var rgbw = '#'+w+r+g+b; console.log('RGBW: '+rgbw); connection.send(rgbw); })rawliteral";
+ var rgbw = '#'+w+r+g+b; console.log('RGBW: '+rgbw); connection.send(rgbw); }
+function ledEffect () {
+ effectEnable = ! effectEnable;
+ if (effectEnable) {
+  connection.send("Effect ON");
+  document.getElementById('effect').style.backgroundColor = '#00878F';
+  document.getElementById('r').className = 'disabled';
+  document.getElementById('g').className = 'disabled';
+  document.getElementById('b').className = 'disabled';  
+  document.getElementById('w').className = 'disabled';
+  document.getElementById('r').disabled = true;
+  document.getElementById('g').disabled = true;
+  document.getElementById('b').disabled = true;
+  document.getElementById('w').disabled = true;
+  console.log('LED Effect ON');
+ } else {
+  connection.send("Normal Mode");
+  document.getElementById('effect').style.backgroundColor = '#999';
+  document.getElementById('r').className = 'enabled';
+  document.getElementById('g').className = 'enabled';
+  document.getElementById('b').className = 'enabled';
+  document.getElementById('w').className = 'enabled';
+  document.getElementById('r').disabled = false;
+  document.getElementById('g').disabled = false;
+  document.getElementById('b').disabled = false;
+  document.getElementById('w').disabled = false;
+  console.log('LED Effect OFF');
+ }
+})rawliteral";
 #endif
 
 const char PROGMEM index_3[] = R"rawliteral(</script></head>
@@ -253,6 +284,15 @@ void patchHomePage()
 }
 
 
+void effectAllLedOff() 
+{
+  for(uint16_t i=0; i<strip.numPixels(); i++) {
+    strip.setPixelColor(i, 0x00000000);
+  }
+  strip.show();
+}
+
+
 void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length) 
 {
   switch(type) {
@@ -261,13 +301,14 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length
       USE_SERIAL.printf("[%u] Disconnected!\n", num);
       #endif
       break;
-    case WStype_CONNECTED: {
-      IPAddress ip = webSocket.remoteIP(num);
-      #ifdef USE_SERIAL
-      USE_SERIAL.printf("[%u] Connected from %d.%d.%d.%d url: %s\n", num, ip[0], ip[1], ip[2], ip[3], payload);
-      #endif
-      // send message to client
-      webSocket.sendTXT(num, "Connected");
+    case WStype_CONNECTED:
+      {
+        IPAddress ip = webSocket.remoteIP(num);
+        #ifdef USE_SERIAL        
+        USE_SERIAL.printf("[%u] Connected from %d.%d.%d.%d url: %s\n", num, ip[0], ip[1], ip[2], ip[3], payload);
+        #endif
+        // send message to client
+        webSocket.sendTXT(num, "Connected");
       }
       break;
     case WStype_TEXT:
@@ -285,10 +326,13 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length
           strip.setPixelColor(i, rgbwLUT);
         }
         strip.show();
-      } else if (payload[0] == 'E') {   // the browser sends an E when the LED effect is enabled
-        ledEffect = true;
-      } else if (payload[0] == 'N') {   // the browser sends an N when the LED effect is disabled
-        ledEffect = false;
+      } 
+      else if (payload[0] == 'E') {   // the browser sends an E when the LED effect is enabled
+        effectEnable = true;
+        effectAllLedOff();
+      } 
+      else if (payload[0] == 'N') {   // the browser sends an N when the LED effect is disabled
+        effectEnable = false;
       }
       #ifdef USE_SERIAL
       USE_SERIAL.println();
@@ -377,7 +421,15 @@ void setup()
 
     strip.begin();
     strip.setBrightness(BRIGHTNESS);
-    strip.show();   // Initialize all pixels to 'off'
+    // Initialize all pixels the default value
+    uint32_t rgbwLUT = gammaCorrection(rgbwData);
+    #ifdef USE_SERIAL
+    USE_SERIAL.printf("LUT: %08x", rgbwLUT);
+    #endif
+    for(uint16_t i=0; i<strip.numPixels(); i++) {
+      strip.setPixelColor(i, rgbwLUT);
+    }
+    strip.show();
     
     startServer();
     lastPatchTime = millis();
@@ -400,6 +452,10 @@ void loop()
     if ( millis()-lastPatchTime >= patch_interval ) {
       patchHomePage();
       lastPatchTime = millis();
+    }
+    if (effectEnable == true) {
+      // Put ESP8266 into sleep infinitely
+      ESP.deepSleep(0);
     }
     // Add some delay to reduce power consumption but still give a good slider response 
     delay(20);  // (ms)
