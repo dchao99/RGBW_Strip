@@ -1,1 +1,2 @@
-# RGBW_Strip_Control
+# RGBW_Strip
+For WS2812 RGB LED strip and SK6812 WWA LED
