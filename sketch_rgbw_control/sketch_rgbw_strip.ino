@@ -25,20 +25,34 @@
 #include <Hash.h>
 #include <Adafruit_NeoPixel.h>
 
+#ifdef DEBUG_ESP_PORT       //this is Arduino IDE's debug option
+#define DEBUG_PORT DEBUG_ESP_PORT
+#else
+//#define DEBUG_PORT Serial //comment out to disable serial, or choose Serial1
+#endif
 
-#define ENCODING_BYTES 3          // Options: 3 (RGB) or 4 (RGBW)
-                                  // Floor-Strip = RGB, Counter-Strip = RGBW
-#include "homepage.h"
-#include "gamma8.h"
+#ifdef DEBUG_PORT
+#define DEBUG_PRINTF(...) DEBUG_PORT.printf_P( __VA_ARGS__ )
+#else
+#define DEBUG_PRINTF(...)
+#endif
 
-//#define USE_SERIAL Serial       // DEBUG options: Serial and Serial1
+#ifdef DEBUG_PORT
+#define DEBUG_PRINT(...) DEBUG_PORT.print( __VA_ARGS__ )
+#else
+#define DEBUG_PRINT(...)
+#endif
 
 // LED strip settings
 #define D_PIN          D2
+#define ENCODING_BYTES 3          // Options: 3 (RGB) or 4 (RGBW)
+                                  // Floor-Strip = RGB, Counter-Strip = RGBW
 #define NUM_PIXELS     126        // Kitchen = 55 LEDs, Hallway = 86 LEDs, Entryway = 126 LEDs
 #define BRIGHTNESS     80         // WWA-Floor-Strip = 80, RGB-Counter-Strip = 120
 #define SLIDER_MIN     08         // Note: Patch this literal by hand inside html code because this
-                                  //       macro wont be recongnised inside the literal declaration
+                                  //       macro is not recongnised inside the literal declaration
+#include "homepage.h"
+#include "gamma8.h"
 
 // Choose one special effect, only one effect for now
 #define EFFECT_DEEPSLEEP
@@ -94,11 +108,11 @@ uint32_t gammaCorrection(uint32_t rgbw)
 uint32_t gammaCorrection(uint32_t rgbw)
 {
   uint32_t lut;
-  lut = rgbw & 0xff;
+  lut = pgm_read_byte(&gamma8[rgbw&0xff]);
   rgbw = ((rgbw >> 8) & 0xffffff) | ((lut << 24) & 0xff000000);
   lut = pgm_read_byte(&gamma8[rgbw&0xff]);
   rgbw = ((rgbw >> 8) & 0xffffff) | ((lut << 24) & 0xff000000);
-  lut = rgbw & 0xff;
+  lut = pgm_read_byte(&gamma8[rgbw&0xff]);
   rgbw = ((rgbw >> 8) & 0xffffff) | ((lut << 24) & 0xff000000);
   lut = pgm_read_byte(&gamma8[rgbw&0xff]);
   rgbw = ((rgbw >> 8) & 0xffffff) | ((lut << 24) & 0xff000000);
@@ -111,31 +125,23 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length
 {
   switch(type) {
     case WStype_DISCONNECTED:
-      #ifdef USE_SERIAL
-      USE_SERIAL.printf("[%u] Disconnected!\n", num);
-      #endif
+      DEBUG_PRINTF(PSTR("[%u] Disconnected!\n"), num);
       break;
     case WStype_CONNECTED:
       {
         IPAddress ip = webSocket.remoteIP(num);
-        #ifdef USE_SERIAL        
-        USE_SERIAL.printf("[%u] Connected from %d.%d.%d.%d url: %s\n", num, ip[0], ip[1], ip[2], ip[3], payload);
-        #endif
+        DEBUG_PRINTF(PSTR("[%u] Connected from %d.%d.%d.%d url: %s\n"), num, ip[0], ip[1], ip[2], ip[3], payload);
         // send message to client
         webSocket.sendTXT(num, "Connected");
       }
       break;
     case WStype_TEXT:
-      #ifdef USE_SERIAL
-      USE_SERIAL.printf("[%u] Received Text: %s\n", num, payload);
-      #endif
+      DEBUG_PRINTF(PSTR("[%u] Received Text: %s\n"), num, payload);
       if(payload[0] == '#') {
         // Patch the web page with new RGBW value
         rgbwData = (uint32_t) strtoul((const char *) &payload[1], NULL, 16);
         uint32_t rgbwLUT = gammaCorrection(rgbwData);
-        #ifdef USE_SERIAL
-        USE_SERIAL.printf("    Gamma corrected RGB value: %08x\n", rgbwLUT);
-        #endif
+        DEBUG_PRINTF(PSTR("    Corrected RGB value: %08x\n"), rgbwLUT);
         for(uint16_t i=0; i<strip.numPixels(); i++) {
           strip.setPixelColor(i, rgbwLUT);
         }
@@ -154,29 +160,21 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length
 
 void startWiFi()
 {
-  #ifdef USE_SERIAL
-  USE_SERIAL.print(F("Hostname: "));
-  USE_SERIAL.println(WiFi.hostname());
-  USE_SERIAL.print(F("Connecting ."));
-  #endif
+  DEBUG_PRINT(F("Hostname: "));
+  DEBUG_PRINT(WiFi.hostname());
+  DEBUG_PRINT(F("\nConnecting ."));
 
   if (WiFi.status() != WL_CONNECTED) 
     WiFi.begin(ssid, password);
       
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
-    #ifdef USE_SERIAL
-    USE_SERIAL.print(".");
-    #endif
+    DEBUG_PRINT(".");
   }
 
-  #ifdef USE_SERIAL
-  USE_SERIAL.println();
-  USE_SERIAL.print(F("Connected to "));
-  USE_SERIAL.println(ssid);
-  USE_SERIAL.print(F("IP address: "));
-  USE_SERIAL.println(WiFi.localIP());
-  #endif
+  IPAddress ip = WiFi.localIP();
+  DEBUG_PRINTF(PSTR("\nConnected to %s\n"), ssid);
+  DEBUG_PRINTF(PSTR("IP address: %u.%u.%u.%u\n"), ip[0], ip[1], ip[2], ip[3]);
 }
 
 
@@ -199,12 +197,11 @@ void startServer()
 
 void setup() 
 {
-  #ifdef USE_SERIAL
-  USE_SERIAL.begin(115200);
+  #ifdef DEBUG_PORT
+  DEBUG_PORT.begin(115200);
   delay(10);
-  USE_SERIAL.println();
-  USE_SERIAL.println();
-  USE_SERIAL.setDebugOutput(false);  // Use extra debugging details?
+  DEBUG_PORT.println();
+  DEBUG_PORT.println();
   #endif
     
   // Make up new hostname from our Chip ID (The MAC addr)
@@ -226,18 +223,14 @@ void setup()
 
   // Start MDNS Service
   if(MDNS.begin(hostString)) {
-    #ifdef USE_SERIAL
-    USE_SERIAL.println("MDNS responder started");
-    #endif
+    DEBUG_PRINTF(PSTR("MDNS responder started\n"));
   }
 
   strip.begin();
   strip.setBrightness(BRIGHTNESS);
   // Initialize all pixels the default value
   uint32_t rgbwLUT = gammaCorrection(rgbwData);
-  #ifdef USE_SERIAL
-  USE_SERIAL.printf("Startup Gamma corrected RGB value: %08x\n", rgbwLUT);
-  #endif
+  DEBUG_PRINTF(PSTR("Startup corrected RGB value: %08x\n"), rgbwLUT);
   for(uint16_t i=0; i<strip.numPixels(); i++) {
     strip.setPixelColor(i, rgbwLUT);
   }
@@ -248,11 +241,11 @@ void setup()
   // Add service to MDNS
   MDNS.addService("http", "tcp", 80);
   MDNS.addService("ws", "tcp", 81);
-  #ifdef USE_SERIAL
-  USE_SERIAL.printf("HTTPServer ready! Open http://%s.local in your browser\n", hostString);
-  USE_SERIAL.printf("HTTPUpdateServer ready! Open http://%s.local/update in your browser\n", hostString);
-  #endif
+  
+  DEBUG_PRINTF(PSTR("HTTPServer ready! Open http://%s.local in your browser\n"), hostString);
+  DEBUG_PRINTF(PSTR("HTTPUpdateServer ready! Open http://%s.local/update in your browser\n"), hostString);
 
+  // Start timer
   lastPatchTime = millis();
 }
 
