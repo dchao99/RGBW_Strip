@@ -25,7 +25,7 @@
 #include <Hash.h>
 #include <Adafruit_NeoPixel.h>
 
-#ifdef DEBUG_ESP_PORT       //this is Arduino IDE's debug option
+#ifdef DEBUG_ESP_PORT     //this is Arduino IDE's debug option, use it if defined
 #define DEBUG_PORT DEBUG_ESP_PORT
 #else
 //#define DEBUG_PORT Serial //comment out to disable serial, or choose Serial1
